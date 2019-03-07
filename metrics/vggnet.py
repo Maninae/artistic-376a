@@ -2,6 +2,7 @@ from PIL import Image
 import numpy as np
 from torchvision.models.vgg import vgg16_bn
 from torchvision import transforms
+import torch
 import torch.nn as nn
 
 
@@ -71,6 +72,7 @@ def get_vgg_model(pretrained=True, **kwargs):
 def open_image(image_path):
     print("Creating a PIL image from:", image_path)
     im = Image.open(image_path) 
+    return im
 
 
 def prepare_input_VGG(img):
@@ -85,7 +87,6 @@ def prepare_input_VGG(img):
 
     img = transform_pipeline(img)
     img = img.unsqueeze(0)
-    img = Variable(img)
     return img
 
 
@@ -93,6 +94,7 @@ def prepare_input_VGG(img):
 # February '17'
 class FeatureExtractor(nn.Module):
     def __init__(self, submodule, extracted_layers):
+        super().__init__()
         self.submodule = submodule
         self.extracted_layers = extracted_layers
 
@@ -114,6 +116,9 @@ if __name__ == "__main__":
     fex = FeatureExtractor(conv_features, extracted_layers)
 
     # For every image: get features at designated layers
-    pass
+    cat = open_image("cat.jpg")
+    img = prepare_input_VGG(cat)
+    activations = fex(img)
+    # print(activations)
 
     
