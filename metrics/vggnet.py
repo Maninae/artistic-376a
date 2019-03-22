@@ -1,16 +1,20 @@
+import os
 from PIL import Image
+
 import numpy as np
-from torchvision.models.vgg import vgg16_bn
-from torchvision import transforms
+from sklearn import manifold
+from matplotlib import pyplot as plt
+
 import torch
 import torch.nn as nn
+from torchvision.models.vgg import vgg16_bn
+from torchvision import transforms
 
 
 
-
-def get_vgg_model(pretrained=True, **kwargs):
-    return vgg16_bn(pretrained, **kwargs)
 """
+VGG16 with Batch Norm:
+
     0 Conv2d(3, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
     1 BatchNorm2d(64, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
     2 ReLU(inplace)
@@ -74,22 +78,14 @@ def open_image(image_path):
     im = Image.open(image_path) 
     return im
 
-
-def prepare_input_VGG(img):
-    """ input: ndarray, batch of images (M, H, W, 3). For single image, M=1
-        :return: pytorch Variable of our image
-    """
-    transform_pipeline = transforms.Compose([
-        transforms.Resize(224),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                             std=[0.229, 0.224, 0.225])])
-
-    img = transform_pipeline(img)
-    img = img.unsqueeze(0)
-    return img
+def get_genre_images(image_dir):
+    print("Opening dir:", image_dir)
+    files = [os.path.join(image_dir, fn) for fn in os.listdir(image_dir) if fn.endswith(".jpg")]
+    opened_files = [open_image(file) for file in files]
+    return opened_files
 
 
+# Based off of:
 # https://discuss.pytorch.org/t/how-to-extract-features-of-an-image-from-a-trained-model/119/12
 # February '17'
 class FeatureExtractor(nn.Module):
@@ -107,18 +103,87 @@ class FeatureExtractor(nn.Module):
         return outputs
 
 
+def get_VGG_feature_extractor(extracted_layers):
+    model = vgg16_bn(pretrained=True)
+    conv_network = model._modules["features"] # The convolutional part
+    return FeatureExtractor(conv_network, extracted_layers)
+
+
+def prepare_input_VGG(img):
+    """ input: ndarray, batch of images (M, H, W, 3). For single image, M=1
+        :return: pytorch Variable of our image
+    """
+    transform_pipeline = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                             std=[0.229, 0.224, 0.225])])
+
+    img = transform_pipeline(img)
+    img = img.unsqueeze(0)
+    return img
+
+# https://pytorch.org/tutorials/advanced/neural_style_tutorial.html
+def get_gram_matrix(x):
+    a, b, c, d = x.size()  
+    # a=batch size(=1)
+    # b=number of feature maps
+    # (c,d)=dimensions of a f. map (N=c*d)
+    assert a == 1
+
+    features = x.view(a * b, c * d)  # resise F_XL into \hat F_XL
+
+    G = torch.mm(features, features.t())  # compute the gram product
+
+    # we 'normalize' the values of the gram matrix
+    # by dividing by the number of element in each feature maps.
+    return G.div(a * b * c * d)
+
+def get_gram_matrix_from_image(img):
+        img_tensor = prepare_input_VGG(img)
+        activations = fex(img_tensor)[0]
+        style_matrix = get_gram_matrix(activations)
+        return style_matrix
+
+######################
+
+def visualize(datapoints):
+    """ datapoints: (n,k) nparray of n datapoints, each k-dimensional. 
+    """
+    mds = manifold.MDS(n_components=2, max_iter=5000, eps=1e-9, dissimilarity="euclidean")
+    positions = mds.fit_transform(datapoints)
+
+    # matplotlib to plot the positions
+    print(positions.shape)
+
+
+
 if __name__ == "__main__":
-    model = get_vgg_model()
+    fex = get_VGG_feature_extractor(["13"])
+    # ["6", "13", "23", "33", "43"]
+
+    # For every image: get features at designated layers,
+    #   and compute Gram matrix. No vectorization
+    realistic_images = get_genre_images("../toy_dataset/realistic-cats")
+    realistic_gram_matrices = []
+    for img in realistic_images:
+        style_matrix = get_gram_matrix_from_image(img)
+        realistic_gram_matrices.append(style_matrix)
+
+    cartoon_images = get_genre_images("../toy_dataset/cartoon-dogs")
+    cartoon_gram_matrices = []
+    for img in cartoon_images:
+        style_matrix = get_gram_matrix_from_image(img)
+        cartoon_gram_matrices.append(style_matrix)
+
+    all_gram_matrices_flattened = [gm.flatten().detach().numpy() for gm in (realistic_gram_matrices + cartoon_gram_matrices)]
+    datapoints = np.array(all_gram_matrices_flattened)
+
+    # center the data
+    mean_sample = np.mean(datapoints, axis=0, keepdims=True)
+    datapoints = datapoints - mean_sample
     
-    # activations after each of the MaxPools
-    extracted_layers = ["6", "13", "23", "33", "43"]
-    conv_features = model._modules["features"]
-    fex = FeatureExtractor(conv_features, extracted_layers)
+    visualize(datapoints)
 
-    # For every image: get features at designated layers
-    cat = open_image("cat.jpg")
-    img = prepare_input_VGG(cat)
-    activations = fex(img)
-    # print(activations)
-
+    
     
