@@ -73,16 +73,7 @@ VGG16 with Batch Norm:
 43 MaxPool2d(kernel_size=2, stride=2, padding=0, dilation=1, ceil_mode=False)
 """
 
-def open_image(image_path):
-    print("Creating a PIL image from:", image_path)
-    im = Image.open(image_path) 
-    return im
 
-def get_genre_images(image_dir):
-    print("Opening dir:", image_dir)
-    files = [os.path.join(image_dir, fn) for fn in os.listdir(image_dir) if fn.endswith(".jpg")]
-    opened_files = [open_image(file) for file in files]
-    return opened_files
 
 
 # Based off of:
@@ -123,6 +114,22 @@ def prepare_input_VGG(img):
     img = img.unsqueeze(0)
     return img
 
+
+####################################################
+
+
+def open_image(image_path):
+    print("Creating a PIL image from:", image_path)
+    im = Image.open(image_path) 
+    return im
+
+def get_genre_images(image_dir):
+    print("Opening dir:", image_dir)
+    files = [os.path.join(image_dir, fn) for fn in os.listdir(image_dir) if fn.endswith(".jpg")]
+    opened_files = [open_image(file) for file in files]
+    return opened_files
+
+
 # https://pytorch.org/tutorials/advanced/neural_style_tutorial.html
 def get_gram_matrix(x):
     a, b, c, d = x.size()  
@@ -145,6 +152,15 @@ def get_gram_matrix_from_image(img):
         style_matrix = get_gram_matrix(activations)
         return style_matrix
 
+def get_gram_matrix_from_directory_images(dirpath):
+    images = get_genre_images(dirpath)
+    gram_matrices = []
+    for img in images:
+        style_matrix = get_gram_matrix_from_image(img)
+        gram_matrices.append(style_matrix)
+    return gram_matrices
+
+
 ######################
 
 def visualize(datapoints):
@@ -153,8 +169,12 @@ def visualize(datapoints):
     mds = manifold.MDS(n_components=2, max_iter=5000, eps=1e-9, dissimilarity="euclidean")
     positions = mds.fit_transform(datapoints)
 
-    # matplotlib to plot the positions
-    print(positions.shape)
+    # matplotlib to plot the positions (8,2)
+    # print(positions.shape)
+    
+    plt.scatter(positions[:4,0], positions[:4,1], c="red")
+    plt.scatter(positions[4:,0], positions[4:,1], c="blue")
+    plt.show()
 
 
 
@@ -162,19 +182,21 @@ if __name__ == "__main__":
     fex = get_VGG_feature_extractor(["13"])
     # ["6", "13", "23", "33", "43"]
 
+    """
+    genre_directories = [os.path.join("../different_genres", dirname) for dirname in os.listdir("../different_genres")]
+    all_gram_matrices = []
+    for genre_path in genre_directories:
+        print("Doing genre path:", genre_path)
+        genre_gm = get_gram_matrix_from_directory_images(genre_path)
+        assert len(genre_gm) == 8
+        all_gram_matrices.extend(genre_gm)
+    """
     # For every image: get features at designated layers,
     #   and compute Gram matrix. No vectorization
-    realistic_images = get_genre_images("../toy_dataset/realistic-cats")
-    realistic_gram_matrices = []
-    for img in realistic_images:
-        style_matrix = get_gram_matrix_from_image(img)
-        realistic_gram_matrices.append(style_matrix)
-
-    cartoon_images = get_genre_images("../toy_dataset/cartoon-dogs")
-    cartoon_gram_matrices = []
-    for img in cartoon_images:
-        style_matrix = get_gram_matrix_from_image(img)
-        cartoon_gram_matrices.append(style_matrix)
+    realistic_gram_matrices = get_gram_matrix_from_directory_images("../toy_dataset/realistic-cats")
+    
+    cartoon_gram_matrices = get_gram_matrix_from_directory_images("../toy_dataset/cartoon-dogs")
+    
 
     all_gram_matrices_flattened = [gm.flatten().detach().numpy() for gm in (realistic_gram_matrices + cartoon_gram_matrices)]
     datapoints = np.array(all_gram_matrices_flattened)
