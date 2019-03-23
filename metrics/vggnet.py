@@ -3,6 +3,7 @@ from PIL import Image
 
 import numpy as np
 from sklearn import manifold
+from sklearn.decomposition import PCA
 from matplotlib import pyplot as plt
 
 import torch
@@ -111,6 +112,8 @@ def prepare_input_VGG(img):
                              std=[0.229, 0.224, 0.225])])
 
     img = transform_pipeline(img)
+    if img.size()[0] == 4: # 4 channel RGBA, remove A to be 3 channel RGB
+        img = img[:3,...]
     img = img.unsqueeze(0)
     return img
 
@@ -120,7 +123,7 @@ def prepare_input_VGG(img):
 
 def open_image(image_path):
     print("Creating a PIL image from:", image_path)
-    im = Image.open(image_path) 
+    im = Image.open(image_path)
     return im
 
 def get_genre_images(image_dir):
@@ -147,10 +150,11 @@ def get_gram_matrix(x):
     return G.div(a * b * c * d)
 
 def get_gram_matrix_from_image(img):
-        img_tensor = prepare_input_VGG(img)
-        activations = fex(img_tensor)[0]
-        style_matrix = get_gram_matrix(activations)
-        return style_matrix
+    print("computing a gram matrix...")
+    img_tensor = prepare_input_VGG(img)
+    activations = fex(img_tensor)[0]
+    style_matrix = get_gram_matrix(activations)
+    return style_matrix
 
 def get_gram_matrix_from_directory_images(dirpath):
     images = get_genre_images(dirpath)
@@ -163,49 +167,59 @@ def get_gram_matrix_from_directory_images(dirpath):
 
 ######################
 
-def visualize(datapoints):
+def visualize(datapoints, list_of_genres):
     """ datapoints: (n,k) nparray of n datapoints, each k-dimensional. 
     """
+    pca = PCA(n_components=50)
+    datapoints = pca.fit_transform(datapoints)
+
     mds = manifold.MDS(n_components=2, max_iter=5000, eps=1e-9, dissimilarity="euclidean")
     positions = mds.fit_transform(datapoints)
-
-    # matplotlib to plot the positions (8,2)
-    # print(positions.shape)
     
-    plt.scatter(positions[:4,0], positions[:4,1], c="red")
-    plt.scatter(positions[4:,0], positions[4:,1], c="blue")
+    # assume 8 datapoints per genre, 10 genres
+    # blue, green, red, cyan, magenta, yellow, black, lightgray, gray, lightgreen
+    ten_colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k', tuple([0.3] * 3), tuple([0.7] * 3), (0,0.5,0,1)]
+    
+    for _ in range(len(list_of_genres)):
+        start = 8 * _
+        color = ten_colors[_]
+        genre_name = list_of_genres[_]
+        plt.scatter(positions[start : start+8, 0], positions[start : start+8, 1], c=color, label=genre_name)
+    
+    plt.legend()
     plt.show()
 
 
 
 if __name__ == "__main__":
-    fex = get_VGG_feature_extractor(["13"])
+    fex = get_VGG_feature_extractor(["2"])
     # ["6", "13", "23", "33", "43"]
 
-    """
+    
     genre_directories = [os.path.join("../different_genres", dirname) for dirname in os.listdir("../different_genres")]
+
+    # Test: let's just do 2 genres
+    # genre_directories = genre_directories[:2]
+
+    list_of_genres = [] # To preserve ordering when coloring legends
     all_gram_matrices = []
     for genre_path in genre_directories:
         print("Doing genre path:", genre_path)
+        list_of_genres.append(os.path.basename(genre_path))
         genre_gm = get_gram_matrix_from_directory_images(genre_path)
         assert len(genre_gm) == 8
         all_gram_matrices.extend(genre_gm)
-    """
-    # For every image: get features at designated layers,
-    #   and compute Gram matrix. No vectorization
-    realistic_gram_matrices = get_gram_matrix_from_directory_images("../toy_dataset/realistic-cats")
+        print("  Appended 8 images' gram matrices.")
     
-    cartoon_gram_matrices = get_gram_matrix_from_directory_images("../toy_dataset/cartoon-dogs")
-    
-
-    all_gram_matrices_flattened = [gm.flatten().detach().numpy() for gm in (realistic_gram_matrices + cartoon_gram_matrices)]
+    # Turn them into numpy matrices, without batch dimension
+    all_gram_matrices_flattened = [gm.flatten().detach().numpy() for gm in all_gram_matrices]
     datapoints = np.array(all_gram_matrices_flattened)
 
     # center the data
     mean_sample = np.mean(datapoints, axis=0, keepdims=True)
     datapoints = datapoints - mean_sample
     
-    visualize(datapoints)
+    visualize(datapoints, list_of_genres)
 
     
     
